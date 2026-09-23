@@ -20,7 +20,6 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it 
                 Divider()
             }
             if let token: RunSessionGuard = .isServerEnabled {
-                Text("Workspaces:")
                 ForEach(viewModel.workspaces, id: \.name) { workspace in
                     Button {
                         Task.startUnstructured {
@@ -42,8 +41,6 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it 
                     }
                 }
             }.keyboardShortcut("E", modifiers: .command)
-            getExperimentalUISettingsMenu(viewModel: viewModel)
-            openConfigButton()
             reloadConfigButton(warningsAsErrors: false)
         } else {
             Button("AeroSpace requires accessibility permission to move windows") {

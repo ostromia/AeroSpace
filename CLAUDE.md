@@ -53,6 +53,52 @@ Then delete:
 
 Verify nothing is left: `grep -rni sponsor Sources/` must return no hits.
 
+### 3. No "Open config in ..." button
+
+Delete the `openConfigButton()` call from the `MenuBarExtra` block in `MenuBar.swift`
+— the entry labelled `Open config in '<editor>'`, bound to ⌘,. It sits between
+`getExperimentalUISettingsMenu(...)` and `reloadConfigButton(...)`.
+
+This one is a single-line deletion. Do **not** delete the `openConfigButton(
+showShortcutGroup:)` function itself, nor `getTextEditorToOpenConfig()` or
+`shortcutGroup(...)`: `MessageView.swift` still calls them for the config-error popup,
+which is a separate window and is deliberately left alone.
+
+Verify: `grep -rn openConfigButton Sources/` must show exactly two hits — the
+definition in `MenuBar.swift` and the call in `MessageView.swift`.
+
+### 4. No "Experimental UI Settings" submenu, style fixed to system font
+
+Delete the `getExperimentalUISettingsMenu(viewModel: viewModel)` call from the
+`MenuBarExtra` block in `MenuBar.swift`.
+
+Then rewrite `Sources/AppBundle/ui/ExperimentalUISettings.swift` down to just the
+type and the enum, because removing the submenu orphans everything else and periphery
+runs with `--strict`:
+
+- delete `getExperimentalUISettingsMenu(...)` and the `MenuBarStyleButton` view,
+- replace the UserDefaults-backed `displayStyle` with `var displayStyle: MenuBarStyle
+  { .systemText }` — the picker is gone, so nothing can write the stored value, and
+  system font is the style this fork wants,
+- delete the `ExperimentalUISettingsItems` enum (only the UserDefaults key),
+- strip `MenuBarStyle` down to `enum MenuBarStyle: String` with its five cases,
+  dropping `CaseIterable`, `Identifiable`, `Equatable`, `Hashable`, `id` and `title`,
+  which only the submenu used. Equatable/Hashable stay synthesised automatically for a
+  raw-value enum, and `MenuBarLabel.swift` still switches over all five cases.
+
+Keep `MenuBarLabel`'s `style:` / `color:` init parameters. They are only passed as nil
+now, but the properties are read in `menuBarContent`, so they are not dead.
+
+To restore the picker, revert this file — upstream's version is self-contained.
+
+### 5. No "Workspaces:" header
+
+Delete the `Text("Workspaces:")` line directly above the `ForEach(viewModel.workspaces,
+...)` in `MenuBar.swift`. One line, nothing else changes: keep the `ForEach`, and keep
+the `Divider()` after it that separates the workspace list from Enable/Disable.
+
+`MenuBarLabel.swift` is not involved — it renders the menu bar icon, not the dropdown.
+
 ## Syncing with upstream
 
 Do not squash history. Shared ancestry with upstream is what keeps conflicts confined
