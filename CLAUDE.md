@@ -117,5 +117,99 @@ git fetch upstream && git rebase upstream/main
   explicit `!/name` entry, or `git add -f`.
 - Swift package builds from directory globs — deleting a source file needs no build
   file edit.
-- `./build-debug.sh` builds, `./test.sh` builds with warnings-as-errors and runs
-  tests, `./lint.sh` runs swiftlint and periphery (dead-code detection).
+- `./lint.sh` runs swiftlint (`only_rules`, `strict: true`) and periphery
+  (`scan --strict`), so unused declarations are build failures — but see below, it
+  cannot currently run on this machine.
+- The entry-point scripts are documented in `dev-docs/development.md`. Which of them
+  actually work here is covered in the next section.
+
+## Building and installing (this machine)
+
+**Toolchain constraint.** `.swift-version` pins Swift 6.4. The installed Xcode ships
+Swift 6.2.3, and swift.org has no 6.4 release yet, so swiftly is deliberately *not*
+installed (`swiftly install` fails on a missing download URL; `script/setup.sh` then
+falls back to plain `swift` and prints a harmless warning).
+
+`Sources/AppBundleTests/tree/TreeNodeTest.swift` uses `weak let`, a Swift 6.4 feature,
+so **anything that compiles the test target fails**: `./test.sh`, `./lint.sh`,
+`./build-debug.sh` and `./run-debug.sh` — the latter two call `swift build
+--build-tests`, and no argument suppresses it. This is upstream code, unrelated to the
+fork tweaks. The practical consequence: periphery cannot be run locally, so the
+dead-code reasoning in the tweaks above has to be done by hand. Revisit when Swift 6.4
+ships in Xcode.
+
+Also note `xcode/project.yml` sets `SWIFT_VERSION: 6.2`, so the *app* target builds
+fine on 6.2.3. Only the tests need 6.4.
+
+**Debug run** (skips the test target, so it works):
+
+```
+swift build --product AeroSpaceApp && ./.build/debug/AeroSpaceApp
+```
+
+Quit the installed AeroSpace first — two instances fight over window management and the
+server socket. Ctrl-C to stop.
+
+**Release build and install.** Do not use `./build-release.sh` or
+`./install-from-sources.sh`. They also build man pages (Ruby/bundler/asciidoctor),
+shell completions (Rust/cargo, fish), universal binaries, a zip and two Homebrew casks;
+they abort on any uncommitted file; and `install-from-sources.sh` additionally installs
+`brew-install-path` from a third-party tap and is labelled work-in-progress upstream.
+For just the app bundle:
+
+```
+./generate.sh --ignore-cmd-help
+( cd xcode && xcodebuild -scheme AeroSpace -configuration Release \
+    -destination "generic/platform=macOS" -derivedDataPath .xcode-build clean build )
+pkill -x AeroSpace
+rm -rf /Applications/AeroSpace.app
+ditto xcode/.xcode-build/Build/Products/Release/AeroSpace.app /Applications/AeroSpace.app
+```
+
+`generate.sh` regenerates `xcode/AeroSpace.xcodeproj` (xcodegen is downloaded into
+`.deps/` automatically) and rewrites `versionGenerated.swift` and
+`gitHashGenerated.swift` to `SNAPSHOT` placeholders — that shows up in `git status` and
+is harmless, since tweak 1 deleted the UI that displayed them. Use `ditto`, not
+`cp -R`: it preserves the code signature, and copying over an existing bundle leaves
+stale files inside it.
+
+The Homebrew cask was uninstalled, so brew no longer owns `/Applications/AeroSpace.app`.
+
+**Codesigning drives the Accessibility permission.** `generate.sh` writes
+`CODE_SIGN_IDENTITY: aerospace-codesign-certificate` into the Xcode project. Appending
+`CODE_SIGN_IDENTITY="-"` to the xcodebuild line signs ad-hoc, which needs no
+certificate but makes the designated requirement a bare cdhash — so macOS treats every
+rebuild as a different app and revokes Accessibility permission each time. A
+self-signed **Code Signing** certificate of exactly that name (Keychain Access →
+Certificate Assistant → Create a Certificate → Self-Signed Root) makes the requirement
+`certificate leaf[subject.CN] = "aerospace-codesign-certificate"`, which survives
+rebuilds.
+
+- `security find-identity -v -p codesigning` — the certificate must be listed. "0 valid
+  identities found" means Certificate Type was not set to `Code Signing`.
+- `codesign -d -r- <app>` — verify before installing: expect `certificate leaf[...]`,
+  not `cdhash`.
+- Switching between ad-hoc and certificate changes the identity once more, so the
+  stale entry in System Settings → Privacy & Security → Accessibility should be removed
+  with `−` and re-added.
+
+**The `aerospace` CLI is a separate product** that the .app does not contain, and
+nothing else provides it now that the cask is gone. Karabiner-Elements invokes
+`/opt/homebrew/bin/aerospace` by absolute path (it runs commands with a minimal PATH),
+so after every app rebuild:
+
+```
+swift build -c release --product aerospace
+cp .build/release/aerospace /opt/homebrew/bin/aerospace
+```
+
+The CLI and the app refuse to talk across mismatched versions, so always build both
+from the same tree.
+
+## Working agreements
+
+- **Never run `git` commands in this repo.** The user runs git themselves. Propose
+  commit messages and commands for them to run; do not execute them, and never stage,
+  commit, delete or rewrite anything through git.
+- The user's shell aliases `ls` to a script that ignores its arguments and lists `$PWD`.
+  Use `/bin/ls`, `find`, or the Glob tool when a path matters.
