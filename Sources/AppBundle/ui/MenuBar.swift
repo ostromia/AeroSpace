@@ -20,14 +20,19 @@ public func menuBar(viewModel: TrayMenuModel) -> some Scene { // todo should it 
                 Divider()
             }
             if let token: RunSessionGuard = .isServerEnabled {
-                ForEach(viewModel.workspaces, id: \.name) { workspace in
-                    Button {
-                        Task.startUnstructured {
-                            try await runLightSession(.menuBarButton, token) { _ = Workspace.get(byName: workspace.name).focusWorkspace() }
-                        }
-                    } label: {
-                        Toggle(isOn: .constant(workspace.isFocused)) {
-                            Text(workspace.name + workspace.suffix).font(.system(.body, design: .monospaced))
+                ForEach(Array(qwertyRows(viewModel.workspaces).enumerated()), id: \.offset) { index, row in
+                    if index > 0 {
+                        Divider()
+                    }
+                    ForEach(row, id: \.name) { workspace in
+                        Button {
+                            Task.startUnstructured {
+                                try await runLightSession(.menuBarButton, token) { _ = Workspace.get(byName: workspace.name).focusWorkspace() }
+                            }
+                        } label: {
+                            Toggle(isOn: .constant(workspace.isFocused)) {
+                                Text(workspace.name + workspace.suffix).font(.system(.body, design: .monospaced))
+                            }
                         }
                     }
                 }
@@ -116,6 +121,34 @@ func shortcutGroup(label: some View, content: some View) -> some View {
             content
         }
     }
+}
+
+private let qwertyRowKeys = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"]
+
+private let qwertyRanks: [Character: Int] = {
+    var ranks: [Character: Int] = [:]
+    for (rank, key) in qwertyRowKeys.joined().enumerated() {
+        ranks[key] = rank
+    }
+    return ranks
+}()
+
+private func qwertySorted(_ workspaces: [WorkspaceViewModel]) -> [WorkspaceViewModel] {
+    func rank(_ name: String) -> [Int] {
+        name.lowercased().map { qwertyRanks[$0] ?? Int.max }
+    }
+    return workspaces.sorted { rank($0.name).lexicographicallyPrecedes(rank($1.name)) }
+}
+
+/// Workspaces in QWERTY order, split into one group per keyboard row
+func qwertyRows(_ workspaces: [WorkspaceViewModel]) -> [[WorkspaceViewModel]] {
+    func row(_ name: String) -> Int {
+        guard let first = name.lowercased().first else { return qwertyRowKeys.count }
+        return qwertyRowKeys.firstIndex { $0.contains(first) } ?? qwertyRowKeys.count
+    }
+    return Dictionary(grouping: qwertySorted(workspaces), by: { row($0.name) })
+        .sorted { $0.key < $1.key }
+        .map { $0.value }
 }
 
 func getTextEditorToOpenConfig() -> URL {

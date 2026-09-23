@@ -99,6 +99,33 @@ the `Divider()` after it that separates the workspace list from Enable/Disable.
 
 `MenuBarLabel.swift` is not involved — it renders the menu bar icon, not the dropdown.
 
+### 6. Workspaces listed in QWERTY order, not alphabetically
+
+This one is an addition, not a deletion. `TrayMenuModel.updateTrayText()` fills
+`workspaces` from `Workspace.all`, which is sorted naturally (digits numerically, then
+letters alphabetically). The dropdown should instead follow the physical keyboard, so
+workspaces named after keys read left-to-right, top-to-bottom.
+
+In `MenuBar.swift`:
+
+- the `ForEach` over the workspace list takes `qwertySorted(viewModel.workspaces)`,
+- a file-private `qwertyRanks` dictionary maps each character of
+  `"1234567890qwertyuiopasdfghjklzxcvbnm"` to its position, and `qwertySorted(_:)`
+  ranks each workspace name character by character and compares the resulting `[Int]`
+  with `lexicographicallyPrecedes`. Unknown characters rank `Int.max`, so they sort
+  last; multi-character names fall back to the next character, as in a dictionary.
+
+The list is also split by keyboard row, with a `Divider()` between groups —
+`1234567890`, `qwertyuiop`, `asdfghjkl`, `zxcvbnm`. `qwertyRows(_:)` groups the sorted
+list by the row its first character belongs to and drops empty rows, so the dividers
+only appear where a boundary is actually crossed. The view iterates
+`Array(qwertyRows(...).enumerated())` keyed by `\.offset` and emits the divider for
+every group after the first.
+
+Sorting happens in the view, deliberately. `TrayMenuModel` and `Workspace.all` keep
+upstream's ordering, so `workspace next`/`prev`, `list-workspaces` and the CLI are
+unaffected — only the dropdown is reordered.
+
 ## Syncing with upstream
 
 Do not squash history. Shared ancestry with upstream is what keeps conflicts confined
